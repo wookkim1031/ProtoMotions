@@ -34,20 +34,29 @@ class MimicADD(AMP):
 
     # -----------------------------
     # Environment Interaction and Data Updates
+    # Instead of feeding the policy the raw reference pose and raw current pose separately
+    # computes a pose-difference feature so the network directly sees "how far off the target am I".
     # -----------------------------
     def add_agent_info_to_obs(self, obs):
         obs = super().add_agent_info_to_obs(obs)
 
+        # Motion times: Motion timestamp that is supposed to be tracked 
         motion_times = self.env.motion_manager.motion_times
+        # Motion ids: Motion clip
         motion_ids = self.env.motion_manager.motion_ids
+        # Queries the mocap/reference dataset for the kinematic state
         ref_state = self.env.motion_lib.get_motion_state(motion_ids, motion_times)
 
+        # reference motions live in their own canonical coordinate frame
+        # simulated character spawns somewhere else in the env
         ref_state_gt = ref_state.rigid_body_pos.reshape(self.num_envs, -1, 3)
         ref_state_gt += (
             self.env.get_spawn_to_ref_pose_offset_with_terrain_height_correction(
                 ref_state_gt
             )
         )
+        # Queried separately for the referene root and the current root 
+        # Assume body index 0 is root/pelvis - sta
         ref_ground_heights = self.env.terrain.get_ground_heights(
             ref_state_gt[:, 0]
         ).clone()
@@ -67,6 +76,7 @@ class MimicADD(AMP):
             self.num_envs, 0, dtype=torch.bool, device=ref_state_gt.device
         )
 
+        # Once for the reference state, once for the current sim state, using the same function so two ouptuts are directly ocmparable element-wise 
         ref_pose = compute_humanoid_max_coords_observations(
             body_pos=ref_state_gt,
             body_rot=ref_state.rigid_body_rot,
@@ -93,15 +103,19 @@ class MimicADD(AMP):
             w_last=True,
         )
 
+        # Handles the policy "goal" and "state" separately and making it learn to subtract them internally 
         tracking_diff_obs = ref_pose - current_pose
         obs["mimic_target_poses_diff"] = tracking_diff_obs.view(self.num_envs, -1)
         return obs
 
+    # padding the discriminator's expert samples
     def get_expert_disc_obs(self, num_samples: int):
         expert_disc_obs = super().get_expert_disc_obs(num_samples)
         if "max_coords_obs" in self.env.observation_manager.observation_history_buffers:
+            # figure out per-frame feature dimensionality (obs_dim) preferring the observation manager's buffer shape
             obs_dim = self.env.observation_manager.observation_history_buffers["max_coords_obs"].data.shape[-1]
         else:
+            # falling back to inferring it from the expert obs dict divided by 8
             obs_dim = expert_disc_obs.get("max_coords_obs", expert_disc_obs.get("historical_max_coords_obs", torch.empty(0))).shape[-1] // 8
         tracking_diff_obs = torch.zeros(
             [num_samples, obs_dim],
