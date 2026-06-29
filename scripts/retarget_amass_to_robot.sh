@@ -78,7 +78,7 @@ PROTO_DIR="${OUTPUT_DIR}/proto-${ROBOT_TYPE}"
 FINAL_PT="${OUTPUT_DIR}/proto-${ROBOT_TYPE}.pt"
 
 echo "=============================================="
-echo "Retargeting AMASS to ${ROBOT_TYPE^^}"
+echo "Retargeting AMASS to G1"
 echo "=============================================="
 echo "ProtoMotions Python: $PROTO_PYTHON"
 echo "PyRoki Python:       $PYROKI_PYTHON"
